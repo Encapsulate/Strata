@@ -694,19 +694,23 @@ bool qsa_prompt_attn_batch(const float* q, const QsaAttnPools& pools, const int3
     {   // sm_75 or newer: the MMA above compiles for both.  sm_80+ runs the cp.async kernel (launch_i8); Turing has
         // no cp.async, so it runs the v1 kernel (launch<1>, same accuracy, another summation order).  An older card
         // keeps the old kernel.
-        static int cc_major[64] = {};
+        static int compute_capability[64] = {};
         int dev = 0;
         if (cudaGetDevice(&dev) != cudaSuccess || dev < 0 || dev >= 64) { cudaGetLastError(); return false; }
-        if (cc_major[dev] == 0) {
-            int major = 0;
+        if (compute_capability[dev] == 0) {
+            int major = 0, minor = 0;
             if (cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev) != cudaSuccess) {
                 cudaGetLastError();
                 return false;
             }
-            cc_major[dev] = major;
+            if (cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, dev) != cudaSuccess) {
+                cudaGetLastError();
+                return false;
+            }
+            compute_capability[dev] = major * 10 + minor;
         }
-        if (cc_major[dev] < 7) return false;
-        turing = cc_major[dev] < 8;
+        if (compute_capability[dev] < 75) return false;
+        turing = compute_capability[dev] < 80;
     }
 #if defined(__HIPCC__)
     return false;   // the tensor-core kernel is compiled out on AMD (its major version is not a CUDA sm)
