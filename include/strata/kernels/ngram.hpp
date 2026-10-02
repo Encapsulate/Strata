@@ -23,6 +23,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace strata::kernels {
@@ -146,7 +147,8 @@ public:
     /// Plan v0.3 P5: the rows of `n_tokens` tokens (16 each, `rows` token-major) into `out` (2560 floats per token),
     /// as ONE reader request - page dedupe and sort across the whole batch, the reader's full queue depth.  Not
     /// while a single-token `issue` is pending.  The mapped mode gathers row by row.
-    bool gather_batch(const uint32_t* rows, size_t n_tokens, float* out, std::string& err);
+    bool gather_batch(const uint32_t* rows, size_t n_tokens, float* out, std::string& err,
+                      const std::function<bool()>& should_stop = {});
 
     /// Fault injection (Direct mode): every row read completes no earlier than `us` after issue.
     void set_injected_delay_us(double us);

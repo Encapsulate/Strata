@@ -134,6 +134,13 @@ class EngineStuck(RuntimeError):
     reporting its GPU and RAM as given back."""
 
 
+def engine_recovery_message(error: Exception) -> str:
+    """Describe the configured recovery policy without promising a restart that is explicitly disabled."""
+    recovery = "manual recovery required" if os.environ.get("STRATA_MANUAL_RECOVERY") == "1" \
+        else "the next request restarts it"
+    return f"{error}; {recovery}"
+
+
 class GpuBusy(RuntimeError):
     """The model is unloaded and the GPU has less free VRAM than min_free_vram_mib: something else (a game, another
     model server) is using it, so the engine is not started into the little that is left."""
@@ -501,6 +508,8 @@ class StrataEngine:
         """Yields token ids, and None as a heartbeat every 10 s while the engine is quiet (reading a long prompt):
         the HTTP layer turns it into an SSE comment, which keeps clients' watchdogs calm and notices a client that
         has gone.  A consumer that stops early (or `cancel`) makes the engine STOP, so it does not run to max_new."""
+        if getattr(self, "quarantined", False):
+            raise EngineDied("the cancelled engine did not finish cleanup; manual recovery required")
         self.progress = None
         self.prefill_tok_s_mean = None
         # an image request takes the same sampling keys as text (#75: it used to decode greedily whatever was asked)
@@ -577,19 +586,19 @@ class StrataEngine:
                         pass
                 # #481: never an untimed wait here - it holds the request FIFO, and an engine that lost step never
                 # answers.  An engine that honours STOP gets the current allowance in all (a STOP during a prompt
-                # chunk is seen after it); an older one runs on to max_new, so each line only has to come in time.
-                heard = time.monotonic()
+                # chunk is seen after it).  Under the owner's manual-recovery policy, a timeout quarantines the
+                # worker without killing or restarting it.  Keep at least upstream's workload-derived allowance.
+                drain_seconds = max(float(getattr(self, "cancel_drain_seconds", 30)), allow if allow > 0 else 0.0)
+                deadline = time.monotonic() + drain_seconds
                 while True:
-                    left = allow - (time.monotonic() - heard) if allow > 0 else None
                     try:
-                        if left is not None and left <= 0:
-                            raise queue.Empty
-                        line = self.lines.get(timeout=left)
+                        line = self.lines.get(timeout=max(0.001, deadline - time.monotonic()))
                     except queue.Empty:
-                        raise self._silent("the engine did not finish the request after it was stopped (STOP) "
-                                           f"within {allow:.0f} s") from None
+                        self.quarantined = True
+                        raise EngineDied("STOP cleanup timed out; worker quarantined for manual recovery") from None
                     if line is None or line.startswith("ERR"):
-                        break
+                        self.quarantined = True
+                        raise EngineDied("STOP cleanup ended without DONE; worker quarantined for manual recovery")
                     if line.startswith("DONE"):
                         self._parse_done(line)
                         break
@@ -1052,8 +1061,12 @@ class Service:
     def ensure_loaded(self):
         """Start the engine if it is not running (unloaded, or it died - issue #27), after the before_load hook and
         the free-VRAM check.  The caller holds self.fifo."""
+        if getattr(self.engine, "quarantined", False):
+            raise EngineDied("cancelled engine requires manual recovery; refusing another request")
         if self.loaded() and not self._vision_down():
             return
+        if os.environ.get("STRATA_MANUAL_RECOVERY") == "1" and not self.loaded():
+            raise EngineDied("engine stopped; manual recovery policy forbids automatic restart")
         if self.before_load:
             cmd = self.before_load
             print(f"[strata] before loading: {cmd if isinstance(cmd, str) else ' '.join(map(str, cmd))}", flush=True)
@@ -2236,7 +2249,7 @@ def make_handler(svc: Service):
             except (GpuBusy, EngineStarting) as e:
                 self._json(503, {"error": {"type": "server_error", "message": str(e)}})
             except EngineDied as e:                          # before the answer started (not streamed)
-                self._json(503, {"error": {"type": "server_error", "message": f"{e}; the next request restarts it"}})
+                self._json(503, {"error": {"type": "server_error", "message": engine_recovery_message(e)}})
             except EngineStuck as e:                         # an unload or restart that could not end the engine
                 self._json(503, {"error": {"type": "server_error", "message": str(e)}})
 
@@ -2396,9 +2409,12 @@ def make_handler(svc: Service):
             except OSError:
                 self._note(outcome="disconnected")
                 cancel.set()                                 # client went away: stop the engine
-                chunks.close()
+                try:
+                    chunks.close()
+                except EngineDied as e:
+                    print(f"[strata] disconnected request: {e}", flush=True)
             except EngineDied as e:                          # mid-stream: say so, then end the stream properly
-                err = {"error": {"type": "server_error", "message": f"{e}; the next request restarts it"}}
+                err = {"error": {"type": "server_error", "message": engine_recovery_message(e)}}
                 self._note(error=err["error"])
                 self.wfile.write(b"data: " + json.dumps(err).encode() + b"\n\ndata: [DONE]\n\n")
             except StructuredOutputError as e:
@@ -2445,9 +2461,12 @@ def make_handler(svc: Service):
             except OSError:
                 self._note(outcome="disconnected")
                 cancel.set()
-                events.close()
+                try:
+                    events.close()
+                except EngineDied as e:
+                    print(f"[strata] disconnected request: {e}", flush=True)
             except EngineDied as e:                          # mid-stream: Anthropic's error event
-                err = {"type": "error", "error": {"type": "api_error", "message": f"{e}; the next request restarts it"}}
+                err = {"type": "error", "error": {"type": "api_error", "message": engine_recovery_message(e)}}
                 self._note(error=err["error"])
                 self.wfile.write(b"event: error\ndata: " + json.dumps(err).encode() + b"\n\n")
             except ValueError as e:                          # the engine's ERR after the stream started

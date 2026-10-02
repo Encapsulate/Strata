@@ -360,18 +360,26 @@ bool PleTable::collect(float* out2560, std::string& err) {
     return true;
 }
 
-bool PleTable::gather_batch(const uint32_t* rows, size_t n_tokens, float* out, std::string& err) {
+bool PleTable::gather_batch(const uint32_t* rows, size_t n_tokens, float* out, std::string& err,
+                            const std::function<bool()>& should_stop) {
     if (impl_->pending) { err = "PleTable::gather_batch while a token is in flight"; return false; }
+    if (should_stop && should_stop()) { err = "cancelled"; return false; }
     const size_t n = n_tokens * (size_t) PLE_N_HEADS;
     if (impl_->mode == PleIo::Direct) {
         std::vector<uint8_t> raw(n * impl_->rb);
         const auto ticket = impl_->reader.issue(rows, n, raw.data());
-        if (!impl_->reader.collect(ticket, err)) return false;
-        for (size_t i = 0; i < n; ++i) impl_->decode(raw.data() + i * impl_->rb, out + i * PLE_HEAD_DIM);
+        if (!impl_->reader.collect(ticket, err, should_stop)) return false;
+        for (size_t i = 0; i < n; ++i) {
+            if ((i & 255u) == 0 && should_stop && should_stop()) { err = "cancelled"; return false; }
+            impl_->decode(raw.data() + i * impl_->rb, out + i * PLE_HEAD_DIM);
+        }
         impl_->bytes_read += (uint64_t) n * impl_->rb;
         return true;
     }
-    for (size_t i = 0; i < n; ++i) read_row(rows[i], out + i * PLE_HEAD_DIM);
+    for (size_t i = 0; i < n; ++i) {
+        if ((i & 63u) == 0 && should_stop && should_stop()) { err = "cancelled"; return false; }
+        read_row(rows[i], out + i * PLE_HEAD_DIM);
+    }
     return true;
 }
 

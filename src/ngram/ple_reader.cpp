@@ -87,6 +87,7 @@ struct Job {
 
 struct TicketState {
     uint32_t pending = 0;  // jobs not yet completed
+    bool cancelled = false;
 };
 
 }  // namespace
@@ -136,6 +137,19 @@ struct PleReader::Impl {
             if (it != tickets.end() && it->second.pending > 0) --it->second.pending;
         }
         queue.clear();
+    }
+
+    /// Cancel only one ticket. Already-submitted reads must finish because their destination buffers belong to
+    /// the caller; unsubmitted reads can be removed immediately. Caller holds `mu` in threaded mode.
+    void cancel_ticket(uint32_t id) {
+        auto ticket = tickets.find(id);
+        if (ticket == tickets.end() || ticket->second.cancelled) return;
+        ticket->second.cancelled = true;
+        for (auto it = queue.begin(); it != queue.end();) {
+            if (it->ticket != id) { ++it; continue; }
+            if (ticket->second.pending > 0) --ticket->second.pending;
+            it = queue.erase(it);
+        }
     }
 
     void record_latency(double us) {
@@ -481,35 +495,48 @@ PleReader::Ticket PleReader::issue(const uint32_t* rows, size_t n, uint8_t* out_
     return Ticket{id};
 }
 
-bool PleReader::collect(Ticket t, std::string& err) {
+bool PleReader::collect(Ticket t, std::string& err, const std::function<bool()>& should_stop) {
     Impl& m = *impl_;
     const double start = now_us();
     if (m.threaded) {
         std::unique_lock<std::mutex> lk(m.mu);
         auto it = m.tickets.find(t.id);
         if (it == m.tickets.end()) { err = "PleReader: unknown ticket"; return false; }
-        m.cv_done.wait(lk, [&] {
-            const auto current = m.tickets.find(t.id);
-            return current == m.tickets.end() || current->second.pending == 0;
-        });
+        while (it->second.pending > 0) {
+            if (should_stop && should_stop()) {
+                m.cancel_ticket(t.id);
+                m.cv_work.notify_all();
+                m.file.wake();
+            }
+            m.cv_done.wait_for(lk, std::chrono::milliseconds(10));
+            it = m.tickets.find(t.id);
+            if (it == m.tickets.end()) { err = "PleReader: unknown ticket"; return false; }
+        }
+        if (should_stop && should_stop()) m.cancel_ticket(t.id);
         it = m.tickets.find(t.id);
         if (it == m.tickets.end()) { err = "PleReader: unknown ticket"; return false; }
         if (!m.error.empty()) { err = m.error; return false; }
+        const bool cancelled = it->second.cancelled;
         m.stats.wait_us += now_us() - start;
         m.tickets.erase(it);
+        if (cancelled) { err = "cancelled"; return false; }
         return true;
     }
     auto it = m.tickets.find(t.id);
     if (it == m.tickets.end()) { err = "PleReader: unknown ticket"; return false; }
     while (it->second.pending > 0) {
-        const bool drained = m.drain(-1);
+        if (should_stop && should_stop()) m.cancel_ticket(t.id);
+        const bool drained = m.drain(10);
         if (!drained && m.error.empty()) m.error = "PleReader: read failed";
         it = m.tickets.find(t.id);
         if (it == m.tickets.end()) { err = "PleReader: unknown ticket"; return false; }
     }
+    if (should_stop && should_stop()) m.cancel_ticket(t.id);
     if (!m.error.empty()) { err = m.error; return false; }
+    const bool cancelled = it->second.cancelled;
     m.stats.wait_us += now_us() - start;
     m.tickets.erase(it);
+    if (cancelled) { err = "cancelled"; return false; }
     return true;
 }
 
