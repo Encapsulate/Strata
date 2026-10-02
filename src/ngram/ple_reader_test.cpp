@@ -13,11 +13,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace ng = strata::ngram;
@@ -134,6 +137,28 @@ int selftest(const std::string& dir) {
         check_rows(rd, rows, N, "delayed");
         CHECK(now_us() - t0 >= 3000, "injected delay not observed (%.0f us)", now_us() - t0);
         CHECK(rd.stats().late_injected > 0, "no read was held back");
+    }
+    // Cancellation drops the unsubmitted tail, safely drains the few reads that already own `out`, and leaves
+    // the same reader usable by the next request. This is the server's client-disconnect path during PLE prefill.
+    for (bool thr : {false, true}) {
+        ng::PleReader rd;
+        std::string err;
+        CHECK(rd.open(path, HEADER, N, 8, 0, err, thr), "cancel open: %s", err.c_str());
+        rd.set_injected_delay_us(100000);
+        std::vector<uint32_t> rows(20000);
+        for (auto& r : rows) r = rng() % N;
+        std::vector<uint8_t> out(rows.size() * ng::ROW_BYTES);
+        const auto ticket = rd.issue(rows.data(), rows.size(), out.data());
+        std::atomic<bool> cancel{false};
+        std::thread stopper([&] { std::this_thread::sleep_for(std::chrono::milliseconds(10)); cancel.store(true); });
+        const double t0 = now_us();
+        const bool ok = rd.collect(ticket, err, [&] { return cancel.load(); });
+        stopper.join();
+        CHECK(!ok && err == "cancelled", "cancel collect: ok=%d err=%s", (int) ok, err.c_str());
+        CHECK(now_us() - t0 < 1000000, "cancel took too long (%.0f us)", now_us() - t0);
+        rd.set_injected_delay_us(0);
+        err.clear();
+        check_rows(rd, {1, 7, 99, N - 1}, N, "after cancel");
     }
     std::filesystem::remove(path);
     std::printf("ple_reader selftest: %s\n", g_fail ? "FAILED" : "OK");

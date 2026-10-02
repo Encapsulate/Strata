@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import json
+import io
 import os
+import queue
 import sys
 import tempfile
 import threading
@@ -17,7 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from serve.frontend import ChatTemplate  # noqa: E402
-from serve.server import CTX_SLACK, ByteTokenizer, EngineDied, GpuBusy, MockEngine, Service, StrataEngine, request_timings, serve  # noqa: E402
+from serve.server import (CTX_SLACK, ByteTokenizer, EngineDied, GpuBusy, MockEngine, Service, StrataEngine,
+                          engine_recovery_message, request_timings, serve)  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CTX = 4096
@@ -28,6 +31,67 @@ class RecordingEngine(MockEngine):
     def generate(self, ids, max_new, sampling, cancel, embeddings=None):
         self.last_max_new = max_new
         yield from super().generate(ids, max_new, sampling, cancel, embeddings)
+
+
+class CancellationRecovery(unittest.TestCase):
+    """Mock pipes exercise STOP cleanup without loading a model or using a GPU."""
+
+    def test_cancel_drain_timeout_quarantines_without_restart(self):
+        engine = StrataEngine.__new__(StrataEngine)
+        engine.proc = type("Process", (), {"stdin":io.StringIO()})()
+        engine.lines = queue.Queue()
+        engine.lines.put("T 42\n")
+        engine.can_stop = True
+        engine.cancel_drain_seconds = 0.02
+        stream = engine.generate([1], 5, {}, threading.Event())
+        self.assertEqual(next(stream), 42)
+        with self.assertRaisesRegex(EngineDied, "quarantined for manual recovery"):
+            stream.close()
+        self.assertTrue(engine.quarantined)
+        self.assertIn("STOP\n", engine.proc.stdin.getvalue())
+        with self.assertRaisesRegex(EngineDied, "manual recovery required"):
+            next(engine.generate([1], 5, {}, threading.Event()))
+
+    def test_cancel_drain_done_preserves_engine(self):
+        engine = StrataEngine.__new__(StrataEngine)
+        engine.proc = type("Process", (), {"stdin":io.StringIO()})()
+        engine.lines = queue.Queue()
+        engine.lines.put("T 42\n")
+        engine.lines.put("DONE 1 1 10.0 10.0 stop\n")
+        engine.can_stop = True
+        stream = engine.generate([1], 5, {}, threading.Event())
+        self.assertEqual(next(stream), 42)
+        stream.close()
+        self.assertFalse(getattr(engine, "quarantined", False))
+        self.assertEqual(engine.last["generated"], 1)
+
+    def test_manual_recovery_rejects_engine_restart(self):
+        engine = MockEngine(ByteTokenizer(), "ok", max_context=CTX)
+        engine.alive = lambda: False
+        engine.restart = lambda: self.fail("automatic engine restart")
+        service = Service(engine, ByteTokenizer(), ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        previous = os.environ.get("STRATA_MANUAL_RECOVERY")
+        os.environ["STRATA_MANUAL_RECOVERY"] = "1"
+        try:
+            with self.assertRaisesRegex(EngineDied, "manual recovery policy"):
+                service.ensure_loaded()
+        finally:
+            if previous is None:
+                os.environ.pop("STRATA_MANUAL_RECOVERY", None)
+            else:
+                os.environ["STRATA_MANUAL_RECOVERY"] = previous
+
+    def test_manual_recovery_error_text_does_not_promise_restart(self):
+        previous = os.environ.get("STRATA_MANUAL_RECOVERY")
+        os.environ["STRATA_MANUAL_RECOVERY"] = "1"
+        try:
+            message = engine_recovery_message(EngineDied("engine stopped"))
+            self.assertEqual(message, "engine stopped; manual recovery required")
+        finally:
+            if previous is None:
+                os.environ.pop("STRATA_MANUAL_RECOVERY", None)
+            else:
+                os.environ["STRATA_MANUAL_RECOVERY"] = previous
 
 
 class MaxTokens(unittest.TestCase):
