@@ -49,8 +49,9 @@ class CancellationRecovery(unittest.TestCase):
         engine.cancel_drain_seconds = 0.02
         stream = engine.generate([1], 5, {}, threading.Event())
         self.assertEqual(next(stream), 42)
-        with self.assertRaisesRegex(EngineDied, "quarantined for manual recovery"):
-            stream.close()
+        with mock.patch.dict(os.environ, {"STRATA_MANUAL_RECOVERY": "1"}):
+            with self.assertRaisesRegex(EngineDied, "quarantined for manual recovery"):
+                stream.close()
         self.assertTrue(engine.quarantined)
         self.assertIn("STOP\n", engine.proc.stdin.getvalue())
         with self.assertRaisesRegex(EngineDied, "manual recovery required"):
@@ -97,6 +98,20 @@ class CancellationRecovery(unittest.TestCase):
                 os.environ.pop("STRATA_MANUAL_RECOVERY", None)
             else:
                 os.environ["STRATA_MANUAL_RECOVERY"] = previous
+
+    def test_manual_recovery_silent_engine_is_quarantined_not_killed(self):
+        engine = StrataEngine.__new__(StrataEngine)
+        engine.proc = mock.Mock()
+        engine.proc.stdin = io.StringIO()
+        engine.proc.poll.return_value = None
+        engine.lines = queue.Queue()
+        engine.can_stop = False
+        engine.silence_s = 0.01
+        with mock.patch.dict(os.environ, {"STRATA_MANUAL_RECOVERY": "1"}):
+            with self.assertRaisesRegex(EngineDied, "quarantined for manual recovery"):
+                next(engine.generate([1], 1, {}, threading.Event()))
+        self.assertTrue(engine.quarantined)
+        engine.proc.kill.assert_not_called()
 
 
 class MaxTokens(unittest.TestCase):

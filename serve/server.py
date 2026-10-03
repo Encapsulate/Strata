@@ -125,8 +125,8 @@ class ModelBusy(RuntimeError):
 
 class EngineSilent(EngineDied):
     """#481: the engine said nothing for too long during a request (or never acknowledged a STOP): the two sides lost
-    step - the engine waiting for its next command, the server for this request's end - and the server ended it.  An
-    EngineDied, so the request ends with an error and the next one starts the engine again."""
+    step - the engine waiting for its next command, the server for this request's end.  The normal policy ends it;
+    STRATA_MANUAL_RECOVERY=1 quarantines it without an automatic kill or restart."""
 
 
 class EngineStuck(RuntimeError):
@@ -594,11 +594,16 @@ class StrataEngine:
                     try:
                         line = self.lines.get(timeout=max(0.001, deadline - time.monotonic()))
                     except queue.Empty:
-                        self.quarantined = True
-                        raise EngineDied("STOP cleanup timed out; worker quarantined for manual recovery") from None
+                        if os.environ.get("STRATA_MANUAL_RECOVERY") == "1":
+                            self.quarantined = True
+                            raise EngineDied("STOP cleanup timed out; worker quarantined for manual recovery") from None
+                        raise self._silent("the engine did not finish the request after it was stopped (STOP) "
+                                           f"within {drain_seconds:.0f} s") from None
                     if line is None or line.startswith("ERR"):
-                        self.quarantined = True
-                        raise EngineDied("STOP cleanup ended without DONE; worker quarantined for manual recovery")
+                        if os.environ.get("STRATA_MANUAL_RECOVERY") == "1":
+                            self.quarantined = True
+                            raise EngineDied("STOP cleanup ended without DONE; worker quarantined for manual recovery")
+                        break
                     if line.startswith("DONE"):
                         self._parse_done(line)
                         break
@@ -611,6 +616,9 @@ class StrataEngine:
         self.silent_note = ("The engine and the server lost step (issue #481; a very slow PC can raise "
                             "\"engine_silence_s\" in the config, 0 = wait forever). If it happens again, please add "
                             "the end of the engine log to github.com/Niko1221/Strata/issues/481.")
+        if os.environ.get("STRATA_MANUAL_RECOVERY") == "1":
+            self.quarantined = True
+            return EngineSilent(f"{what}; worker quarantined for manual recovery")
         self.ended = True                               # not alive from now: the next request restarts it
         proc = self.proc
         try:
