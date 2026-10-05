@@ -1,5 +1,22 @@
 <h1 align="center">Strata</h1>
 
+> ## 🚨 Encapsulate Tesla V100 32GB Edition
+>
+> **This repository is maintained by Encapsulate for running Strata on a Tesla V100 32GB (Volta, SM70).**
+> The runnable V100 source and build are on the [`v100-sm70`](https://github.com/Encapsulate/Strata/tree/v100-sm70)
+> branch. This branch adds the SM70 `mma.m8n8k4` QSA prompt-attention kernel, below-SM80 FP16 prefill GEMM,
+> V100 dispatch fixes, CUDA 12 build instructions, and an automatic V100 prefill safeguard. On SM70,
+> `--prefill auto` selects the validated 2,048-token chunk because the generic 8,192-token chunk can exhaust
+> the V100's 32GB runtime headroom and stall long prompts. **Start here:**
+> [V100 setup tutorial](https://github.com/Encapsulate/Strata/tree/v100-sm70#nvidia-v100--volta-experimental).
+>
+> The default `main` branch remains the upstream-compatible general Strata line. For the Encapsulate V100 build,
+> switch to `v100-sm70` before building:
+>
+> ```bash
+> git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
+> ```
+
 <p align="center"><b>Run a 125-billion-parameter AI model on a normal gaming PC</b><br>
 one NVIDIA card (12-24 GB) + 64 GB of RAM · Windows or Linux · one click to install</p>
 
