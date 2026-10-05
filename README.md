@@ -17,25 +17,33 @@
 > git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
 > ```
 
-> ## 🚨 Encapsulate Tesla V100 32GB Edition
->
-> **This repository is maintained by Encapsulate for running Strata on a Tesla V100 32GB (Volta, SM70).**
-> The runnable V100 source and build are on the [`v100-sm70`](https://github.com/Encapsulate/Strata/tree/v100-sm70)
-> branch. This branch adds the SM70 `mma.m8n8k4` QSA prompt-attention kernel, below-SM80 FP16 prefill GEMM,
-> V100 dispatch fixes, CUDA 12 build instructions, and an automatic V100 prefill safeguard. On SM70,
-> `--prefill auto` selects the validated 2,048-token chunk because the generic 8,192-token chunk can exhaust
-> the V100's 32GB runtime headroom and stall long prompts. **Start here:**
-> [V100 setup tutorial](https://github.com/Encapsulate/Strata/tree/v100-sm70#nvidia-v100--volta-experimental).
->
-> The default `main` branch remains the upstream-compatible general Strata line. For the Encapsulate V100 build,
-> switch to `v100-sm70` before building:
->
-> ```bash
-> git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
-> ```
+## Encapsulate V100 edition — read this first
+
+This is the hardware-specific project for **one Tesla V100-SXM2 32GB GPU (NVIDIA Volta, compute capability SM70)**.
+It is not a 5090, 5070, RTX 30/40/50, or generic gaming-PC configuration. The tested model and runtime are:
+
+```text
+GPU:       Tesla V100-SXM2-32GB / Volta SM70
+Model:     swift-1.5-iq3_xxs
+Context:   131,072 tokens
+Prefill:   --prefill auto -> 2,048-token chunks on SM70
+KV:        int8, 32,768 resident cells
+Backend:   Encapsulate v100-sm70 branch and SM70 CUDA 12 build
+```
+
+The V100-specific work includes the `mma.m8n8k4` SM70 QSA prompt-attention kernel, below-SM80 FP16 prefill GEMM,
+V100 dispatch fixes, the automatic safe-prefill cap, and the benchmark in this README. Your local DeepSeek Harness,
+Open WebUI, and Hermes routes use this Strata backend at `http://127.0.0.1:18082/v1`.
+
+**Do not use the RTX benchmark tables, RTX VRAM guidance, or generic one-click setup below as V100 instructions.**
+Use only the [V100 setup tutorial](#v100-quick-setup) and [V100 benchmark](#what-the-v100-benchmark-means).
+
+---
+
+## Upstream/general Strata reference — not the Encapsulate V100 configuration
 
 <p align="center"><b>Run a 125-billion-parameter AI model on a normal gaming PC</b><br>
-one NVIDIA card (12-24 GB) + 64 GB of RAM · Windows or Linux · one click to install</p>
+general RTX/Strata hardware · Windows or Linux · upstream reference only</p>
 
 <p align="center"><a href="https://github.com/Niko1221/Strata/releases/download/v0.1.10/Pagoda.mp4"><img src="docs/media/pagoda-preview.webp" width="720" alt="A voxel pagoda garden that Strata's model wrote, running in the browser"></a><br>
 <sub>A voxel pagoda garden, 1 shot prompt running on an RTX 5070 with Strata (IQ3_S, 128K context) ·
@@ -53,9 +61,9 @@ of a word): faster than you can read.
 
 ---
 
-## How fast is it?
+## How fast is the upstream/general Strata reference?
 
-Measured on an RTX 5070 (12 GB), a Ryzen 5 7600 and 64 GB of RAM:
+The following numbers are measured on an RTX 5070, not on the Tesla V100 and not on the Encapsulate V100 runtime:
 
 | Size | Writes answers (short chat) | Writes answers (128K context) | Reads your prompt |
 | --- | ---: | ---: | ---: |
