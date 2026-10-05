@@ -57,6 +57,34 @@ warmup. The model cold-load took about 198 seconds, used about 31,994 MiB VRAM a
 long prompts completed without the previous SM70 stall. The full methodology and reproducible commands are in the
 [V100 benchmark record](bench/results/2026-10-05-v100-sm70/README.md).
 
+### V100 benchmark — Coder IQ1_M coding scope
+
+The same Tesla V100-SXM2-32GB was also qualified with the ISTA-DASLab
+Qwen3.8-Flash-Next Coder IQ1_M release. This is a separate route from the
+Swift IQ3_XXS benchmark above; both remain available through the local Strata
+handoff gateway.
+
+```text
+Model ID:  qwen3.8-flash-next-coder-iq1_m
+Weights:   58,408,584,928 bytes / 54.40 GiB, two GGUF shards
+Context:   131,072 tokens
+KV:        int8, 32,768 resident cells
+GPU:       Tesla V100-SXM2-32GB, SM70, driver 580.173.02
+Runtime:   Strata 0.1.31, --prefill auto (validated 2,048-token chunk), MTP4
+```
+
+The coding-scope probe used thinking disabled, temperature 0, and bounded
+code-only responses. It tested a Python `OrderedDict` LRU cache, a TypeScript
+async exponential-backoff retry helper with `AbortSignal`, and a Python
+interval-merging function with validation and non-mutating sorting. All three
+returned code satisfying the structural checks. The measured completion rates
+were 14.7 tok/s for the combined LRU/retry probe and 10.3 tok/s for the
+standalone interval-merging probe. These are coding-probe decode measurements,
+not a general long-answer speed claim.
+
+The reproducible Coder configuration and probe record are in
+[the Coder IQ1_M V100 benchmark record](bench/results/2026-10-05-v100-coder-iq1m/README.md).
+
 ### V100 setup — the only setup section for this GPU
 
 ```bash
