@@ -35,6 +35,45 @@ The V100-specific work includes the `mma.m8n8k4` SM70 QSA prompt-attention kerne
 V100 dispatch fixes, the automatic safe-prefill cap, and the benchmark in this README. Your local DeepSeek Harness,
 Open WebUI, and Hermes routes use this Strata backend at `http://127.0.0.1:18082/v1`.
 
+### V100 benchmark — measured prefill throughput
+
+Reference card: **Tesla V100-SXM2-32GB**, driver 580.173.02, 32,768 MiB VRAM, Strata 0.1.31, Swift
+`swift-1.5-iq3_xxs`, 131,072-token context. Runtime flags:
+
+```text
+--expert-cache auto --prefill 2048 --spec 4 --spec-min-p 0.5
+--kv int8 --kv-resident 32768 --max-context 131072
+```
+
+| Prompt words | Prompt tokens | Prompt ms | **Prefill tok/s** | Wall time | Decode tok/s |
+|---:|---:|---:|---:|---:|---:|
+| 2,048 | 9,185 | 65,036 | **141** | 65.1 s | 32.4 |
+| 4,096 | 19,425 | 21,471 | **905** | 21.6 s | 31.3 |
+| 8,192 | 39,905 | 27,127 | **1,471** | 27.4 s | 38.6 |
+
+These are real prompt-prefill measurements from Strata `/metrics`, calculated as
+`prompt_tokens / prompt_ms * 1000`; each request generated one token. The first request includes cold/cache/page
+warmup. The model cold-load took about 198 seconds, used about 31,994 MiB VRAM and 59.1 GiB system RAM, and later
+long prompts completed without the previous SM70 stall. The full methodology and reproducible commands are in the
+[V100 benchmark record](bench/results/2026-10-05-v100-sm70/README.md).
+
+### V100 setup — the only setup section for this GPU
+
+```bash
+git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
+cd Strata
+cmake -S . -B build-v100 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+  -DCMAKE_CUDA_ARCHITECTURES=70 -DSTRATA_ENABLE_CUDA=ON \
+  -DSTRATA_EXPERIMENTAL_SM60=ON -DSTRATA_BUILD_TESTS=OFF \
+  -DSTRATA_NATIVE_EXPERTS=ON
+ninja -C build-v100 strata
+```
+
+Use `--prefill auto`: on SM70 the source automatically selects the safe 2,048-token chunk. This is an internal
+batch size, not a 2,048-token context limit; the full 131,072-token context remains available. Connect DeepSeek
+Harness, Open WebUI, or Hermes to `http://127.0.0.1:18082/v1` with model `swift-1.5-iq3_xxs`.
+
 **Do not use the RTX benchmark tables, RTX VRAM guidance, or generic one-click setup below as V100 instructions.**
 Use only the [V100 setup tutorial](#v100-quick-setup) and [V100 benchmark](#what-the-v100-benchmark-means).
 
