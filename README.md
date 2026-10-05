@@ -1,8 +1,8 @@
-<h1 align="center">Strata</h1>
+<h1 align="center">Strata — V100 32GB Tesla Volta SM70</h1>
 
-> ## 🚨 Encapsulate Tesla V100 32GB Edition
+> ## 🚨 Strata-v100-32gb-tesla-volta-sm70
 >
-> **This repository is maintained by Encapsulate for running Strata on a Tesla V100 32GB (Volta, SM70).**
+> **Encapsulate’s Tesla V100 32GB / Volta SM70 edition.**
 > The runnable V100 source and build are on the [`v100-sm70`](https://github.com/Encapsulate/Strata/tree/v100-sm70)
 > branch. This branch adds the SM70 `mma.m8n8k4` QSA prompt-attention kernel, below-SM80 FP16 prefill GEMM,
 > V100 dispatch fixes, CUDA 12 build instructions, and an automatic V100 prefill safeguard. On SM70,
