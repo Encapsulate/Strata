@@ -129,6 +129,8 @@ default. See [V100-SM70.md](V100-SM70.md) for the experimental support notes and
 On the reference V100 system, the 40 GB expert load takes several minutes on a cold start; the service becomes
 available only after the expert cache is resident.
 
+Measured on the reference card: [Tesla V100 32GB / SM70 benchmark](bench/results/2026-10-05-v100-sm70/README.md).
+
 #### V100 quick setup
 
 This is a source package, not a bundled model download. You need:
