@@ -112,6 +112,59 @@ default. See [V100-SM70.md](V100-SM70.md) for the experimental support notes and
 On the reference V100 system, the 40 GB expert load takes several minutes on a cold start; the service becomes
 available only after the expert cache is resident.
 
+#### V100 quick setup
+
+This is a source package, not a bundled model download. You need:
+
+- an NVIDIA V100/Volta GPU and a working NVIDIA driver (`nvidia-smi` must work);
+- CUDA 12.x with `nvcc`, CMake, Ninja, a C++ compiler, and Python 3;
+- the Strata model's GGUF files, tokenizer, packed model directory, MTP files, and expert profile;
+- enough system RAM and SSD space for the selected model. The reference Swift IQ3_XXS setup loads about 40 GiB of
+  experts and uses nearly all of a 32 GiB V100.
+
+From a clean checkout:
+
+```bash
+git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
+cd Strata
+cmake -S . -B build-v100 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+  -DCMAKE_CUDA_ARCHITECTURES=70 -DSTRATA_ENABLE_CUDA=ON \
+  -DSTRATA_EXPERIMENTAL_SM60=ON -DSTRATA_BUILD_TESTS=OFF \
+  -DSTRATA_NATIVE_EXPERTS=ON
+ninja -C build-v100 strata
+```
+
+Run the server by replacing the paths below with your model and pack paths:
+
+```bash
+./build-v100/strata --serve \
+  --pack /path/to/pack \
+  --native /path/to/model-shard-00001.gguf \
+  --ple-gguf /path/to/model-shard-00001.gguf \
+  --expert-profile /path/to/expert-profile.bin \
+  --expert-cache auto --prefill auto \
+  --spec 4 --spec-min-p 0.5 --mtp /path/to/mtp/rt \
+  --max-context 131072 --kv int8 --kv-resident 32768
+```
+
+On SM70, `--prefill auto` now automatically selects the safe 2,048-token chunk. You do not need to add a separate
+V100 flag. The 131,072-token context remains available; prefill chunk size only controls how a long prompt is split
+while it is being processed. The first start can take several minutes while the expert arena and GPU cache load.
+
+Verify the server before connecting a frontend:
+
+```bash
+curl http://127.0.0.1:18082/health
+curl http://127.0.0.1:18082/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"swift-1.5-iq3_xxs","messages":[{"role":"user","content":"Say hello"}],"max_tokens":32}'
+```
+
+For DeepSeek Harness or Open WebUI, use the OpenAI-compatible base URL `http://127.0.0.1:18082/v1` and model
+`swift-1.5-iq3_xxs`. For Hermes, use the same base URL and model. Keep only one heavy model resident on the V100;
+switching to the Ollama Swift Q5 model requires stopping Strata first because both models do not fit together.
+
 An **AMD Radeon RX 7900 XT / XTX, RX 9070 / 9070 XT or Radeon AI PRO R9700 on Linux** works too (experimental; the
 RX 7800 XT / 7700 XT and RX 9060 XT were validated by their owners):
 `./setup.sh --backend hip`, chosen by itself on a PC with no NVIDIA card Strata can use. It installs ROCm without sudo
