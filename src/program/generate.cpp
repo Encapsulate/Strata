@@ -3557,6 +3557,9 @@ int main(int argc, char** argv) {
                                     : ((tokens + 255) / 256) * 256;
         return std::min(max_chunk, rounded);
     };
+    cudaDeviceProp prefill_device{};
+    const bool volta_prefill = cudaGetDeviceProperties(&prefill_device, 0) == cudaSuccess &&
+                               prefill_device.major == 7 && prefill_device.minor == 0;
     // The prompt path's chunk and the slots it borrows for its buffers: the requested chunk halved until it fits,
     // or with --prefill auto the largest of kAutoChunks whose buffers take at most kAutoLendPct % of the slots (a
     // lent slot's expert is streamed during the prompt and refilled after it; measured on a 12 GB card, 32K Q2_0
@@ -3576,6 +3579,7 @@ int main(int argc, char** argv) {
         auto slots_for = lend_slots;
         if (o.prefill_auto) {
             for (const int64_t c : kAutoChunks) {
+                if (volta_prefill && c > 2048) continue; // SM70's 32 GiB V100 has too little headroom for the 8K loan
                 const int64_t k = slots_for(c);
                 if (k + 128 <= xcache.slots() && k * 100 <= kAutoLendPct * xcache.slots()) { chunk = c; return k; }
             }
@@ -3697,8 +3701,10 @@ int main(int argc, char** argv) {
             static constexpr int64_t kAutoChunks[] = {8192, 6144, 4096, 3072, 2048, 1024, 512, 256};
             int64_t chunk = 0;
             if (o.prefill_auto) {
-                for (const int64_t c : kAutoChunks)
+                for (const int64_t c : kAutoChunks) {
+                    if (volta_prefill && c > 2048) continue;
                     if (fits(c, true)) { chunk = c; break; }
+                }
             } else {
                 for (int64_t c = o.prefill_chunk; c >= 256; c /= 2)
                     if (fits(c, false)) { chunk = c; break; }
