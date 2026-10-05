@@ -165,6 +165,14 @@ For DeepSeek Harness or Open WebUI, use the OpenAI-compatible base URL `http://1
 `swift-1.5-iq3_xxs`. For Hermes, use the same base URL and model. Keep only one heavy model resident on the V100;
 switching to the Ollama Swift Q5 model requires stopping Strata first because both models do not fit together.
 
+#### Credits and attribution
+
+This V100 build is an Encapsulate-maintained integration branch of [Strata](https://github.com/Niko1221/Strata) by
+Niko1221. The Volta work incorporates upstream contributions by Niko1221 and Klaus Friedel, including the SM70
+`mma.m8n8k4` prompt-attention kernel, below-SM80 prefill GEMM path, and related older-GPU support. Encapsulate added
+the V100 integration, build documentation, and the SM70 automatic-prefill safety cap. See the Git history for the
+full author and commit record; upstream licenses and notices remain in this repository.
+
 An **AMD Radeon RX 7900 XT / XTX, RX 9070 / 9070 XT or Radeon AI PRO R9700 on Linux** works too (experimental; the
 RX 7800 XT / 7700 XT and RX 9060 XT were validated by their owners):
 `./setup.sh --backend hip`, chosen by itself on a PC with no NVIDIA card Strata can use. It installs ROCm without sudo
