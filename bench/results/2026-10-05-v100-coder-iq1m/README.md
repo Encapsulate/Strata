@@ -44,6 +44,20 @@ was intentionally recorded as truncated. This demonstrates that output
 budget, not only model speed, matters for complete coding responses on a
 single 32 GB V100.
 
+## Matched realistic review comparison
+
+Using the same actual Strata Python/CUDA/CMake excerpts and review prompt as
+the Swift benchmark, with a unique prefix and `0 reused` tokens:
+
+| Prompt tokens | Reused | Prefill tok/s | Completion | Decode tok/s | Wall time |
+|---:|---:|---:|---:|---:|---:|
+| 2,828 | 0 | 19.6 | 384 | 8.3 | 191.0 s |
+| 6,370 | 0 | 29.8 | 384 | 10.8 | 249.7 s |
+
+Swift measured 19.4/29.4 prompt tok/s and 8.5/11.5 decode tok/s on the same
+two requests. This is the realistic agent-facing comparison; the earlier
+numbered-word probe is retained only as a controlled engine test.
+
 ## Reproduce
 
 Start the Coder route through the local handoff gateway or its on-demand unit:

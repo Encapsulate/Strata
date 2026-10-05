@@ -8,39 +8,39 @@ Model: `swift-1.5-iq3_xxs`
 Runtime: `--prefill 2048 --spec 4 --kv int8 --kv-resident 32768 --max-context 131072`  
 Loaded model footprint: 31,994 MiB VRAM at the final idle sample; 59.1 GiB system RAM used; 32,768 MiB VRAM total.  
 
-## Results
+## Matched realistic coding-review benchmark
 
-The prompt text was generated deterministically as numbered `benchmarkN` words. `prompt_tokens` is the tokenizer count
-reported by Strata. Each request generated one token.
+Swift received the same prompts as the Coder route: actual Strata
+Python/CUDA/CMake repository excerpts plus a senior-maintainer request to find
+three correctness/performance risks and propose a minimal patch plan. Each
+prompt had a unique context prefix and Strata reported `0 reused` tokens. The
+answer cap was 384 tokens and the task was run with temperature 0 and thinking
+disabled.
 
-| Prompt words | Prompt tokens | Prompt/prefill ms | **Prefill tok/s** | Wall time | Decode tok/s | Result |
-|---:|---:|---:|---:|---:|---:|---|
-| 2,048 | 9,142 | ~67,000 | **136** | 67.6 s | 1-token sample | completed |
-| 4,096 | 19,382 | ~22,000 | **881** | 22.6 s | 1-token sample | completed |
-| 8,192 | 39,862 | ~28,000 | **1,423** | 28.7 s | 1-token sample; cached prefix | completed |
+| Model | Prompt tokens | Reused | Prefill tok/s | Completion | Decode tok/s | Wall time |
+|---|---:|---:|---:|---:|---:|---:|
+| Swift IQ3_XXS | 2,828 | 0 | 19.4 | 384 | 8.5 | 190.9 s |
+| Coder IQ1_M | 2,828 | 0 | 19.6 | 384 | 8.3 | 191.0 s |
+| Swift IQ3_XXS | 6,370 | 0 | 29.4 | 384 | 11.5 | 250.0 s |
+| Coder IQ1_M | 6,370 | 0 | 29.8 | 384 | 10.8 | 249.7 s |
 
-`Prefill tok/s` is `prompt_tokens / prompt_ms * 1000`, taken from Strata's request metrics. The refreshed run used
-the same deterministic numbered-word protocol; displayed prompt milliseconds are rounded from observed timings.
-Decode is intentionally a one-token sample and is not a meaningful long-answer throughput measurement.
+These are the useful agent-facing numbers for this V100 deployment. The
+similar prompt rates show that the shared SM70 runtime, KV streaming, and
+host/RAM path dominate this workload; the IQ1_M Coder model does not deliver a
+magical 1,000+ tok/s real-agent experience.
 
-The first request included cold/request setup effects and had no useful prefix reuse. Later requests benefited from
-resident experts/cache state and reusable prompt prefixes. The refreshed cold-load took about 469 seconds before the
-service became ready because the 76 GB model was read from storage under host-memory pressure. The important result
-is that long prompts completed without the previous SM70 stall while the engine used the safe 2,048-token prefill
-chunk. The 39.9K-token sample reused a cached prefix, so these rows are a throughput profile rather than independent
-cold uncached measurements.
-
-These three rows must not be read as a monotonic or sustained throughput
-claim: the first request included startup/cache warmup, later requests had a
-warmed expert cache, and the final request reported 16,384 cached prompt
-tokens. A proper uncached comparison requires separate cache-cleared runs or
-unique prefixes and should be reported separately.
+The earlier numbered-word/one-token run is retained only as a controlled
+engine probe in the project history. It included warm/cache effects and is not
+comparable to this task-level benchmark.
 
 ## Reproduce the measurement
 
-Start the V100 server, wait for `/health` to report `"loaded":true`, then send an OpenAI-compatible request. The
-benchmark used deterministic numbered words, `max_tokens: 1`, `temperature: 0`, and `stream: false`; Strata's
-`/metrics` endpoint supplied `prompt_ms`, `prompt_tokens`, and `decode_tok_s`.
+Start the V100 server, wait for `/health` to report `"loaded":true`, then send
+the same repository-review prompt to each route. Use a unique prefix for every
+run, `max_tokens: 384`, `temperature: 0`, thinking disabled, and `stream: false`.
+Confirm the Strata log reports `0 reused` before recording `prompt` and
+`decode` rates. The older numbered-word command below is only a small engine
+smoke probe, not the realistic benchmark above.
 
 ```bash
 curl http://127.0.0.1:18082/health

@@ -26,16 +26,22 @@ and the V100-safe 2,048-token prefill chunk. Only one heavy route is resident
 at a time. Both model IDs are exposed through the shared OpenAI-compatible
 gateway used by DeepSeek Harness, Hermes, and Open WebUI.
 
-| Route | Weights | VRAM resident | Observed benchmark profile* | Best use |
+| Route | Weights | VRAM resident | Realistic code-review result | Best use |
 |---|---:|---:|---|---|
-| `swift-1.5-iq3_xxs` | 75.97 GB / 70.75 GiB, IQ3_XXS | 30,630–31,994 MiB | 136 tok/s first/cold-ish; 881 tok/s warm; 1,423 tok/s with 16,384 cached tokens | general reasoning, tools, long prompts |
-| `qwen3.8-flash-next-coder-iq1_m` | 58.41 GB / 54.40 GiB, IQ1_M | 30,566 MiB | coding task: 1,855 output tokens in 55.5 s at 33.5 tok/s | code generation and editing |
+| `swift-1.5-iq3_xxs` | 75.97 GB / 70.75 GiB, IQ3_XXS | 30,630–31,994 MiB | 19.4 tok/s at 2.8K prompt; 29.4 tok/s at 6.4K; 8.5–11.5 decode tok/s | general reasoning, tools, long prompts |
+| `qwen3.8-flash-next-coder-iq1_m` | 58.41 GB / 54.40 GiB, IQ1_M | 30,566 MiB | 19.6 tok/s at 2.8K prompt; 29.8 tok/s at 6.4K; 8.3–10.8 decode tok/s | code generation and editing |
 
-\* The Swift rows are an observed warm/cache profile, **not an apples-to-apples
-uncached scaling curve**. The first 9.1K request included first-request/cache
-warmup; the 19.4K request used a warmed expert cache; and the 39.9K request
-reported 16,384 cached prompt tokens. Do not interpret 1,423 tok/s as sustained
-uncached Swift throughput.
+The comparison above is the relatable workload: both models received the same
+real Strata Python/CUDA/CMake repository excerpts and the same senior-maintainer
+code-review task. Every request reported **0 reused prompt tokens**. Each
+returned a bounded 384-token structured review. On this single V100, prompt
+processing is effectively the same because the shared SM70 runtime, KV
+streaming, and host/RAM path dominate; the Coder route is not magically 1,000+
+tok/s for real agent prompts.
+
+The earlier numbered-word measurements remain below as a controlled engine
+probe only. They are not end-to-end agent throughput and should not be used to
+predict chat or coding latency.
 
 Coder qualification task: a typed, thread-safe Python TTL/LRU cache module
 plus pytest tests. The 2,048-token output budget completed cleanly; 512- and
@@ -75,7 +81,7 @@ The V100-specific work includes the `mma.m8n8k4` SM70 QSA prompt-attention kerne
 V100 dispatch fixes, the automatic safe-prefill cap, and the benchmark in this README. Your local DeepSeek Harness,
 Open WebUI, and Hermes routes use this Strata backend at `http://127.0.0.1:18082/v1`.
 
-### V100 benchmark — measured prefill throughput
+### Controlled V100 engine probe — not agent throughput
 
 Reference card: **Tesla V100-SXM2-32GB**, driver 580.173.02, 32,768 MiB VRAM, Strata 0.1.31, Swift
 `swift-1.5-iq3_xxs`, 131,072-token context. Runtime flags:
@@ -91,7 +97,7 @@ Reference card: **Tesla V100-SXM2-32GB**, driver 580.173.02, 32,768 MiB VRAM, St
 | 4,096 | 19,382 | ~22,000 | **881** | 22.6 s | 1-token sample |
 | 8,192 | 39,862 | ~28,000 | **1,423** | 28.7 s | 1-token sample; cached prefix |
 
-These are real prompt-prefill measurements from Strata `/metrics`, calculated as
+These are controlled prompt-prefill measurements from Strata `/metrics`, calculated as
 `prompt_tokens / prompt_ms * 1000`; each request generated one token. The first request includes cold/cache/page
 warmup. The model cold-load took about 198 seconds, used about 31,994 MiB VRAM and 59.1 GiB system RAM, and later
 long prompts completed without the previous SM70 stall. The full methodology and reproducible commands are in the
