@@ -1,4 +1,21 @@
-<h1 align="center">Strata</h1>
+<h1 align="center">Strata — V100 32GB Tesla Volta SM70</h1>
+
+> ## 🚨 Strata-v100-32gb-tesla-volta-sm70
+>
+> **Encapsulate’s Tesla V100 32GB / Volta SM70 edition.**
+> The runnable V100 source and build are on the [`v100-sm70`](https://github.com/Encapsulate/Strata/tree/v100-sm70)
+> branch. This branch adds the SM70 `mma.m8n8k4` QSA prompt-attention kernel, below-SM80 FP16 prefill GEMM,
+> V100 dispatch fixes, CUDA 12 build instructions, and an automatic V100 prefill safeguard. On SM70,
+> `--prefill auto` selects the validated 2,048-token chunk because the generic 8,192-token chunk can exhaust
+> the V100's 32GB runtime headroom and stall long prompts. **Start here:**
+> [V100 setup tutorial](https://github.com/Encapsulate/Strata/tree/v100-sm70#nvidia-v100--volta-experimental).
+>
+> The default `main` branch remains the upstream-compatible general Strata line. For the Encapsulate V100 build,
+> switch to `v100-sm70` before building:
+>
+> ```bash
+> git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
+> ```
 
 > ## 🚨 Encapsulate Tesla V100 32GB Edition
 >
@@ -103,6 +120,94 @@ one later with `SETUP.bat` (the same as `START-HERE.bat --setup`; on Linux `./se
 
 For **OrcaRouter's Flash-Next Uncensored IQ3_XXS**, see the [manual compatibility setup](docs/ORCA.md).
 It needs an explicit packing conversion and is not an installer menu option.
+
+### NVIDIA V100 / Volta (experimental)
+
+This fork also carries an experimental CUDA 12 build for NVIDIA Volta (`sm_70`), including the V100 QSA prompt
+attention path using `mma.m8n8k4` and the below-SM80 prefill GEMM path. It is not the normal RTX release build and
+requires a CUDA 12.x toolkit; CUDA 13 does not generate `sm_70` code.
+
+Build the V100 engine from the `v100-sm70` branch with:
+
+```bash
+cmake -S . -B build-v100 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+  -DCMAKE_CUDA_ARCHITECTURES=70 -DSTRATA_ENABLE_CUDA=ON \
+  -DSTRATA_EXPERIMENTAL_SM60=ON -DSTRATA_BUILD_TESTS=OFF \
+  -DSTRATA_NATIVE_EXPERTS=ON
+ninja -C build-v100 strata
+```
+
+The updated Volta attention series is compiled into the engine at commit `f9ee3f2` (the branch also includes the
+V100 dispatch fix `aa86c49`). On V100, the automatic prompt selector now caps the chunk at the validated
+`--prefill 2048` setting: the generic 8,192-token auto chunk can exhaust the V100's remaining runtime headroom and
+stall the Volta prefill path on long prompts. Explicit larger chunks remain an experimental tuning option, not the
+default. See [V100-SM70.md](V100-SM70.md) for the experimental support notes and limitations.
+On the reference V100 system, the 40 GB expert load takes several minutes on a cold start; the service becomes
+available only after the expert cache is resident.
+
+Measured on the reference card: [Tesla V100 32GB / SM70 benchmark](bench/results/2026-10-05-v100-sm70/README.md).
+
+#### V100 quick setup
+
+This is a source package, not a bundled model download. You need:
+
+- an NVIDIA V100/Volta GPU and a working NVIDIA driver (`nvidia-smi` must work);
+- CUDA 12.x with `nvcc`, CMake, Ninja, a C++ compiler, and Python 3;
+- the Strata model's GGUF files, tokenizer, packed model directory, MTP files, and expert profile;
+- enough system RAM and SSD space for the selected model. The reference Swift IQ3_XXS setup loads about 40 GiB of
+  experts and uses nearly all of a 32 GiB V100.
+
+From a clean checkout:
+
+```bash
+git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
+cd Strata
+cmake -S . -B build-v100 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+  -DCMAKE_CUDA_ARCHITECTURES=70 -DSTRATA_ENABLE_CUDA=ON \
+  -DSTRATA_EXPERIMENTAL_SM60=ON -DSTRATA_BUILD_TESTS=OFF \
+  -DSTRATA_NATIVE_EXPERTS=ON
+ninja -C build-v100 strata
+```
+
+Run the server by replacing the paths below with your model and pack paths:
+
+```bash
+./build-v100/strata --serve \
+  --pack /path/to/pack \
+  --native /path/to/model-shard-00001.gguf \
+  --ple-gguf /path/to/model-shard-00001.gguf \
+  --expert-profile /path/to/expert-profile.bin \
+  --expert-cache auto --prefill auto \
+  --spec 4 --spec-min-p 0.5 --mtp /path/to/mtp/rt \
+  --max-context 131072 --kv int8 --kv-resident 32768
+```
+
+On SM70, `--prefill auto` now automatically selects the safe 2,048-token chunk. You do not need to add a separate
+V100 flag. The 131,072-token context remains available; prefill chunk size only controls how a long prompt is split
+while it is being processed. The first start can take several minutes while the expert arena and GPU cache load.
+
+Verify the server before connecting a frontend:
+
+```bash
+curl http://127.0.0.1:18082/health
+curl http://127.0.0.1:18082/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"swift-1.5-iq3_xxs","messages":[{"role":"user","content":"Say hello"}],"max_tokens":32}'
+```
+
+For DeepSeek Harness or Open WebUI, use the OpenAI-compatible base URL `http://127.0.0.1:18082/v1` and model
+`swift-1.5-iq3_xxs`. For Hermes, use the same base URL and model. Keep only one heavy model resident on the V100;
+switching to the Ollama Swift Q5 model requires stopping Strata first because both models do not fit together.
+
+#### Credits and attribution
+
+This V100 build is an Encapsulate-maintained integration branch of [Strata](https://github.com/Niko1221/Strata) by
+Niko1221. The Volta work incorporates upstream contributions by Niko1221 and Klaus Friedel, including the SM70
+`mma.m8n8k4` prompt-attention kernel, below-SM80 prefill GEMM path, and related older-GPU support. Encapsulate added
+the V100 integration, build documentation, and the SM70 automatic-prefill safety cap. See the Git history for the
+full author and commit record; upstream licenses and notices remain in this repository.
 
 An **AMD Radeon RX 7900 XT / XTX, RX 9070 / 9070 XT or Radeon AI PRO R9700 on Linux** works too (experimental; the
 RX 7800 XT / 7700 XT and RX 9060 XT were validated by their owners):

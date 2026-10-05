@@ -19,6 +19,7 @@
 #include "strata/platform/direct_file.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -66,7 +67,10 @@ public:
     Ticket issue(const uint32_t* rows, size_t n, uint8_t* out_raw);
 
     /// Block until every row of the ticket is in `out_raw`. Returns false on an I/O error (message in `err`).
-    bool collect(Ticket t, std::string& err);
+    /// When `should_stop` becomes true, queued reads for this ticket are discarded and only already-issued reads
+    /// are drained before returning `false` with `err == "cancelled"`; `out_raw` is therefore never freed while
+    /// the kernel still owns an I/O request that writes into it.
+    bool collect(Ticket t, std::string& err, const std::function<bool()>& should_stop = {});
 
     /// Fault injection for tests and for the plan's P2 exit check: every read completes no earlier than
     /// `delay_us` after it was issued. 0 disables.

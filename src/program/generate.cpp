@@ -55,6 +55,8 @@
 #include "strata/spec/suffix_drafter.hpp"
 #include "strata/kernels/cvec.hpp"
 #include "strata/core/progress.hpp"
+#include "strata/core/device.hpp"
+#include "strata/core/emulate.hpp"
 #ifndef NOMINMAX
 #define NOMINMAX   // gguf_reader.hpp includes windows.h
 #endif
@@ -2391,6 +2393,21 @@ int main(int argc, char** argv) {
     // CUDA error left set by the failed `cudaHostRegister` and read later by `gr_read`'s launch check.  See the
     // note in `pinned.cu`.
     strata::core::FileExpertSource src;
+    {   // the card, and whether this build has code for it (a binary built for other GPUs fails at its first kernel
+        // otherwise, after the whole expert arena has loaded) - before the arena starts loading
+        int dev = 0;
+        cudaDeviceProp p{};
+        if (cudaGetDevice(&dev) == cudaSuccess && cudaGetDeviceProperties(&p, dev) == cudaSuccess)
+            std::fprintf(stderr, "strata generate: GPU %d: %s, compute capability %d.%d%s\n", dev, p.name,
+                         strata::cc_major_of(p.major), strata::cc_minor_of(p.minor),
+                         strata::emulated_cc() ? " (STRATA_EMULATE_CC: a test mode, the card is emulated)" : "");
+        const std::string e = strata::core::device_code_error();
+        if (!e.empty()) {
+            std::fprintf(stderr, "strata generate: this engine has no code for %s (sm_%d%d): %s - rebuild it for this "
+                                 "card (setup does: START-HERE.bat --setup)\n", p.name, p.major, p.minor, e.c_str());
+            return 1;
+        }
+    }
     strata::core::ArenaExpertSource arena_src;
     strata::core::ExpertSource* srcp = nullptr;
     if (o.mmap_experts) {
@@ -3540,6 +3557,9 @@ int main(int argc, char** argv) {
                                     : ((tokens + 255) / 256) * 256;
         return std::min(max_chunk, rounded);
     };
+    cudaDeviceProp prefill_device{};
+    const bool volta_prefill = cudaGetDeviceProperties(&prefill_device, 0) == cudaSuccess &&
+                               prefill_device.major == 7 && prefill_device.minor == 0;
     // The prompt path's chunk and the slots it borrows for its buffers: the requested chunk halved until it fits,
     // or with --prefill auto the largest of kAutoChunks whose buffers take at most kAutoLendPct % of the slots (a
     // lent slot's expert is streamed during the prompt and refilled after it; measured on a 12 GB card, 32K Q2_0
@@ -3559,6 +3579,7 @@ int main(int argc, char** argv) {
         auto slots_for = lend_slots;
         if (o.prefill_auto) {
             for (const int64_t c : kAutoChunks) {
+                if (volta_prefill && c > 2048) continue; // SM70's 32 GiB V100 has too little headroom for the 8K loan
                 const int64_t k = slots_for(c);
                 if (k + 128 <= xcache.slots() && k * 100 <= kAutoLendPct * xcache.slots()) { chunk = c; return k; }
             }
@@ -3680,8 +3701,10 @@ int main(int argc, char** argv) {
             static constexpr int64_t kAutoChunks[] = {8192, 6144, 4096, 3072, 2048, 1024, 512, 256};
             int64_t chunk = 0;
             if (o.prefill_auto) {
-                for (const int64_t c : kAutoChunks)
+                for (const int64_t c : kAutoChunks) {
+                    if (volta_prefill && c > 2048) continue;
                     if (fits(c, true)) { chunk = c; break; }
+                }
             } else {
                 for (int64_t c = o.prefill_chunk; c >= 256; c /= 2)
                     if (fits(c, false)) { chunk = c; break; }
