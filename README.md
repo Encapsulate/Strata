@@ -104,8 +104,10 @@ cmake -S . -B build-v100 -G Ninja -DCMAKE_BUILD_TYPE=Release \
 ninja -C build-v100 strata
 ```
 
-The updated Volta attention series is compiled into the engine at commit `4f7c00c` (the branch also includes the
-V100 dispatch fix `aa86c49`). See [V100-SM70.md](V100-SM70.md) for the experimental support notes and limitations.
+The updated Volta attention series is compiled into the engine at commit `f9ee3f2` (the branch also includes the
+V100 dispatch fix `aa86c49`). On V100, use a conservative prompt chunk such as `--prefill 2048`; the automatic
+8,192-token chunk can stall the Volta prefill path on long prompts. See [V100-SM70.md](V100-SM70.md) for the
+experimental support notes and limitations.
 On the reference V100 system, the 40 GB expert load takes several minutes on a cold start; the service becomes
 available only after the expert cache is resident.
 
