@@ -15,17 +15,20 @@ reported by Strata. Each request generated one token.
 
 | Prompt words | Prompt tokens | Prompt/prefill ms | **Prefill tok/s** | Wall time | Decode tok/s | Result |
 |---:|---:|---:|---:|---:|---:|---|
-| 2,048 | 9,185 | 65,036 | **141** | 65.1 s | 32.4 | completed |
-| 4,096 | 19,425 | 21,471 | **905** | 21.6 s | 31.3 | completed |
-| 8,192 | 39,905 | 27,127 | **1,471** | 27.4 s | 38.6 | completed |
+| 2,048 | 9,142 | ~67,000 | **136** | 67.6 s | 1-token sample | completed |
+| 4,096 | 19,382 | ~22,000 | **881** | 22.6 s | 1-token sample | completed |
+| 8,192 | 39,862 | ~28,000 | **1,423** | 28.7 s | 1-token sample; cached prefix | completed |
 
-`Prefill tok/s` is `prompt_tokens / prompt_ms * 1000`, taken from Strata's request metrics. `Decode tok/s` is the
-one-token generation rate reported for the same request and is not a meaningful long-answer throughput measurement.
+`Prefill tok/s` is `prompt_tokens / prompt_ms * 1000`, taken from Strata's request metrics. The refreshed run used
+the same deterministic numbered-word protocol; displayed prompt milliseconds are rounded from observed timings.
+Decode is intentionally a one-token sample and is not a meaningful long-answer throughput measurement.
 
 The first request included cold/request setup effects and had no useful prefix reuse. Later requests benefited from
-resident experts/cache state and reusable prompt prefixes. The model cold-load took about 198 seconds before the
-service became ready. The important result is that a long prompt completed without the previous SM70 stall while the
-engine used the safe 2,048-token prefill chunk.
+resident experts/cache state and reusable prompt prefixes. The refreshed cold-load took about 469 seconds before the
+service became ready because the 76 GB model was read from storage under host-memory pressure. The important result
+is that long prompts completed without the previous SM70 stall while the engine used the safe 2,048-token prefill
+chunk. The 39.9K-token sample reused a cached prefix, so these rows are a throughput profile rather than independent
+cold uncached measurements.
 
 ## Reproduce the measurement
 
