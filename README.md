@@ -26,10 +26,16 @@ and the V100-safe 2,048-token prefill chunk. Only one heavy route is resident
 at a time. Both model IDs are exposed through the shared OpenAI-compatible
 gateway used by DeepSeek Harness, Hermes, and Open WebUI.
 
-| Route | Weights | VRAM resident | Measured result | Best use |
+| Route | Weights | VRAM resident | Observed benchmark profile* | Best use |
 |---|---:|---:|---|---|
-| `swift-1.5-iq3_xxs` | 75.97 GB / 70.75 GiB, IQ3_XXS | 30,630–31,994 MiB | 136 tok/s at 9.1K prompt; 881 tok/s at 19.4K; 1,423 tok/s at 39.9K | general reasoning, tools, long prompts |
+| `swift-1.5-iq3_xxs` | 75.97 GB / 70.75 GiB, IQ3_XXS | 30,630–31,994 MiB | 136 tok/s first/cold-ish; 881 tok/s warm; 1,423 tok/s with 16,384 cached tokens | general reasoning, tools, long prompts |
 | `qwen3.8-flash-next-coder-iq1_m` | 58.41 GB / 54.40 GiB, IQ1_M | 30,566 MiB | coding task: 1,855 output tokens in 55.5 s at 33.5 tok/s | code generation and editing |
+
+\* The Swift rows are an observed warm/cache profile, **not an apples-to-apples
+uncached scaling curve**. The first 9.1K request included first-request/cache
+warmup; the 19.4K request used a warmed expert cache; and the 39.9K request
+reported 16,384 cached prompt tokens. Do not interpret 1,423 tok/s as sustained
+uncached Swift throughput.
 
 Coder qualification task: a typed, thread-safe Python TTL/LRU cache module
 plus pytest tests. The 2,048-token output budget completed cleanly; 512- and

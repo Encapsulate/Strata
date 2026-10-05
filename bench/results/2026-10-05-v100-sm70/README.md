@@ -30,6 +30,12 @@ is that long prompts completed without the previous SM70 stall while the engine 
 chunk. The 39.9K-token sample reused a cached prefix, so these rows are a throughput profile rather than independent
 cold uncached measurements.
 
+These three rows must not be read as a monotonic or sustained throughput
+claim: the first request included startup/cache warmup, later requests had a
+warmed expert cache, and the final request reported 16,384 cached prompt
+tokens. A proper uncached comparison requires separate cache-cleared runs or
+unique prefixes and should be reported separately.
+
 ## Reproduce the measurement
 
 Start the V100 server, wait for `/health` to report `"loaded":true`, then send an OpenAI-compatible request. The
