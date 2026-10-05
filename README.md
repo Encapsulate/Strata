@@ -17,6 +17,40 @@
 > git clone --branch v100-sm70 https://github.com/Encapsulate/Strata.git
 > ```
 
+## 32 GB V100 results at a glance
+
+These are measured local results on a **single Tesla V100-SXM2-32GB (Volta
+SM70, driver 580.173.02)** using the Encapsulate `v100-sm70` build. Both
+routes use a 131,072-token context, INT8 KV with 32,768 resident cells, MTP4,
+and the V100-safe 2,048-token prefill chunk. Only one heavy route is resident
+at a time. Both model IDs are exposed through the shared OpenAI-compatible
+gateway used by DeepSeek Harness, Hermes, and Open WebUI.
+
+| Route | Weights | VRAM resident | Measured result | Best use |
+|---|---:|---:|---|---|
+| `swift-1.5-iq3_xxs` | 75.97 GB / 70.75 GiB, IQ3_XXS | 30,630–31,994 MiB | 136 tok/s at 9.1K prompt; 881 tok/s at 19.4K; 1,423 tok/s at 39.9K | general reasoning, tools, long prompts |
+| `qwen3.8-flash-next-coder-iq1_m` | 58.41 GB / 54.40 GiB, IQ1_M | 30,566 MiB | coding task: 1,855 output tokens in 55.5 s at 33.5 tok/s | code generation and editing |
+
+Coder qualification task: a typed, thread-safe Python TTL/LRU cache module
+plus pytest tests. The 2,048-token output budget completed cleanly; 512- and
+1,024-token runs were recorded as truncated output-cap tests. Swift was
+measured with deterministic 9.1K/19.4K/39.9K-token repository-style prompts;
+the first sample includes cold/cache effects and the longest sample reused a
+cached prefix.
+
+| Setting | Swift IQ3_XXS | Coder IQ1_M |
+|---|---|---|
+| Engine | Strata 0.1.31, SM70 build | Strata 0.1.31, SM70 build |
+| Prefill | explicit `2048` | `auto` → validated `2048` |
+| Context | `131072` | `131072` |
+| KV | `int8`, 32,768 resident | `int8`, 32,768 resident |
+| Speculative decoding | MTP4, min-p 0.5 | MTP4, min-p 0.5 |
+| Vision | no | no |
+| Model ID | `swift-1.5-iq3_xxs` | `qwen3.8-flash-next-coder-iq1_m` |
+
+Detailed records: [Swift V100 benchmark](bench/results/2026-10-05-v100-sm70/README.md)
+and [Coder IQ1_M coding benchmark](bench/results/2026-10-05-v100-coder-iq1m/README.md).
+
 ## Encapsulate V100 edition — read this first
 
 This is the hardware-specific project for **one Tesla V100-SXM2 32GB GPU (NVIDIA Volta, compute capability SM70)**.
@@ -47,9 +81,9 @@ Reference card: **Tesla V100-SXM2-32GB**, driver 580.173.02, 32,768 MiB VRAM, St
 
 | Prompt words | Prompt tokens | Prompt ms | **Prefill tok/s** | Wall time | Decode tok/s |
 |---:|---:|---:|---:|---:|---:|
-| 2,048 | 9,185 | 65,036 | **141** | 65.1 s | 32.4 |
-| 4,096 | 19,425 | 21,471 | **905** | 21.6 s | 31.3 |
-| 8,192 | 39,905 | 27,127 | **1,471** | 27.4 s | 38.6 |
+| 2,048 | 9,142 | ~67,000 | **136** | 67.6 s | 1-token sample |
+| 4,096 | 19,382 | ~22,000 | **881** | 22.6 s | 1-token sample |
+| 8,192 | 39,862 | ~28,000 | **1,423** | 28.7 s | 1-token sample; cached prefix |
 
 These are real prompt-prefill measurements from Strata `/metrics`, calculated as
 `prompt_tokens / prompt_ms * 1000`; each request generated one token. The first request includes cold/cache/page
@@ -84,6 +118,8 @@ not a general long-answer speed claim.
 
 The reproducible Coder configuration and probe record are in
 [the Coder IQ1_M V100 benchmark record](bench/results/2026-10-05-v100-coder-iq1m/README.md).
+The direct coding-task qualification completed 1,855 tokens in 55.5 seconds
+(33.5 tok/s), with a 157-token prompt and `finish_reason=stop`.
 
 ### V100 setup — the only setup section for this GPU
 
@@ -100,7 +136,9 @@ ninja -C build-v100 strata
 
 Use `--prefill auto`: on SM70 the source automatically selects the safe 2,048-token chunk. This is an internal
 batch size, not a 2,048-token context limit; the full 131,072-token context remains available. Connect DeepSeek
-Harness, Open WebUI, or Hermes to `http://127.0.0.1:18082/v1` with model `swift-1.5-iq3_xxs`.
+Harness, Open WebUI, or Hermes to the shared gateway at `http://127.0.0.1:11435/v1` and select either
+`swift-1.5-iq3_xxs` or `qwen3.8-flash-next-coder-iq1_m`. The gateway starts the matching Strata unit and prevents
+both 32 GB routes from being resident simultaneously.
 
 **Do not use the RTX benchmark tables, RTX VRAM guidance, or generic one-click setup below as V100 instructions.**
 Use only the [V100 setup tutorial](#v100-quick-setup) and [V100 benchmark](#what-the-v100-benchmark-means).

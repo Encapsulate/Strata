@@ -27,6 +27,23 @@ markers: `OrderedDict`/`move_to_end` for the LRU cache, `AbortSignal` and
 The first combined probe was capped at 384 output tokens; its completion was
 sufficient for the LRU and retry checks but ended at the cap.
 
+## Direct coding-task qualification
+
+The route was then given a substantive code-generation request: implement a
+typed, thread-safe Python 3.11 TTL/LRU cache module and focused pytest tests,
+including expiry, LRU eviction, statistics, and concurrent `get_or_set`.
+Thinking was disabled, temperature was 0, and the output ceiling was 2,048
+tokens.
+
+| Prompt tokens | Completion tokens | Wall time | Decode rate | Finish | Result |
+|---:|---:|---:|---:|---|---|
+| 157 | 1,855 | 55.5 s | 33.5 tok/s | stop | completed implementation and tests; required structural markers present |
+
+The same task at 512 and 1,024 output tokens reached the requested cap and
+was intentionally recorded as truncated. This demonstrates that output
+budget, not only model speed, matters for complete coding responses on a
+single 32 GB V100.
+
 ## Reproduce
 
 Start the Coder route through the local handoff gateway or its on-demand unit:
