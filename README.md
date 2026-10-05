@@ -148,6 +148,32 @@ available only after the expert cache is resident.
 
 Measured on the reference card: [Tesla V100 32GB / SM70 benchmark](bench/results/2026-10-05-v100-sm70/README.md).
 
+#### What the V100 benchmark means
+
+The reference machine is a **Tesla V100-SXM2-32GB** running driver 580.173.02, CUDA 12.x, Strata engine 0.1.31,
+Swift `swift-1.5-iq3_xxs`, and a 131,072-token context. The active runtime flags were:
+
+```text
+--expert-cache auto --prefill 2048 --spec 4 --spec-min-p 0.5
+--kv int8 --kv-resident 32768 --max-context 131072
+```
+
+| Prompt content | Strata prompt tokens | Wall time | Prompt rate | Outcome |
+|---:|---:|---:|---:|---|
+| 2,048 generated words | 9,185 | 65.1 s | 141 tok/s | completed; first/cold request effects |
+| 4,096 generated words | 19,425 | 21.6 s | 899 tok/s | completed |
+| 8,192 generated words | 39,905 | 27.4 s | 1,456 tok/s | completed |
+
+These are prompt-processing measurements, not answer-generation speed: each test generated one token so the timing is
+dominated by prefill. The first request pays startup, cache, and page-warmup costs; subsequent requests benefit from
+resident experts and reusable prompt prefixes. The long-prompt tests completed without the previous SM70 stall.
+
+`--prefill 2048` is the internal batch size used to process a long prompt. It does **not** reduce the context window
+to 2,048 tokens, limit the conversation, or limit the answer. The service still supports 131,072 context tokens. The
+smaller batch keeps temporary workspace within the V100's 32GB VRAM; the generic 8,192-token prefill batch can exhaust
+that headroom and stall, even though an 8,192-token prompt itself works normally. The full reproducible run details
+and binary hash are in the [benchmark record](bench/results/2026-10-05-v100-sm70/README.md).
+
 #### V100 quick setup
 
 This is a source package, not a bundled model download. You need:
