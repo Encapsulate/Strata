@@ -87,6 +87,28 @@ one later with `SETUP.bat` (the same as `START-HERE.bat --setup`; on Linux `./se
 For **OrcaRouter's Flash-Next Uncensored IQ3_XXS**, see the [manual compatibility setup](docs/ORCA.md).
 It needs an explicit packing conversion and is not an installer menu option.
 
+### NVIDIA V100 / Volta (experimental)
+
+This fork also carries an experimental CUDA 12 build for NVIDIA Volta (`sm_70`), including the V100 QSA prompt
+attention path using `mma.m8n8k4` and the below-SM80 prefill GEMM path. It is not the normal RTX release build and
+requires a CUDA 12.x toolkit; CUDA 13 does not generate `sm_70` code.
+
+Build the V100 engine from the `v100-sm70` branch with:
+
+```bash
+cmake -S . -B build-v100 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+  -DCMAKE_CUDA_ARCHITECTURES=70 -DSTRATA_ENABLE_CUDA=ON \
+  -DSTRATA_EXPERIMENTAL_SM60=ON -DSTRATA_BUILD_TESTS=OFF \
+  -DSTRATA_NATIVE_EXPERTS=ON
+ninja -C build-v100 strata
+```
+
+The updated Volta attention series is compiled into the engine at commit `4f7c00c` (the branch also includes the
+V100 dispatch fix `aa86c49`). See [V100-SM70.md](V100-SM70.md) for the experimental support notes and limitations.
+On the reference V100 system, the 40 GB expert load takes several minutes on a cold start; the service becomes
+available only after the expert cache is resident.
+
 An **AMD Radeon RX 7900 XT / XTX, RX 9070 / 9070 XT or Radeon AI PRO R9700 on Linux** works too (experimental; the
 RX 7800 XT / 7700 XT and RX 9060 XT were validated by their owners):
 `./setup.sh --backend hip`, chosen by itself on a PC with no NVIDIA card Strata can use. It installs ROCm without sudo
