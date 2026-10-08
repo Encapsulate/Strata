@@ -9,6 +9,8 @@
 > `--prefill auto` selects the validated 2,048-token chunk because the generic 8,192-token chunk can exhaust
 > the V100's 32GB runtime headroom and stall long prompts. **Start here:**
 > [V100 setup tutorial](https://github.com/Encapsulate/Strata/tree/v100-sm70#nvidia-v100--volta-experimental).
+> For the cross-client Harness/Hermes/Open WebUI anti-loop and thinking setup,
+> see [Stable IQ1/IQ3 routes](docs/ANTI_LOOP_AND_HALLUCINATION_TUTORIAL.md).
 >
 > The default `main` branch remains the upstream-compatible general Strata line. For the Encapsulate V100 build,
 > switch to `v100-sm70` before building:
